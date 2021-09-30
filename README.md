@@ -48,10 +48,9 @@ GitHub organization.
 
 Gerbv has been built and tested on
 
-* Linux (from 2.2)
-* NetBSD/i386 (1.4.1)
-* NetBSD/Alpha (1.5.1)
-* Solaris (5.7 and 5.8)
+* Fedora 34
+* Ubuntu 20.04
+* Windows 10
 
 
 ## Information for developers
