@@ -165,6 +165,14 @@ enum {
 #endif
 };
 
+// ModX
+char
+    last_char = 0;
+ssize_t
+    f_line = 1;
+drill_g_code_t
+    last_g_code = -1;
+
 static gerbv_HID_Attribute drill_attribute_list[] = {
     /* This should be first */
   {N_("autodetect"), N_("Try to autodetect the file format"),
@@ -186,6 +194,32 @@ static gerbv_HID_Attribute drill_attribute_list[] = {
    HID_Enum, 0, 0, {0, 0, 0}, units_list, 0, 0},
 #endif
 };
+
+int
+gerb_drill_fgetc(gerb_file_t *fd)
+{
+    if (fd->ptr >= fd->datalen) return EOF;
+    
+    // ModX
+    int i = (int) fd->data[fd->ptr++];
+    last_char = (char) i; 
+    if (last_char =='\n') f_line++;
+
+    // return (int) fd->data[fd->ptr++];
+    // ModX
+    return i;
+} /* gerb_drill_fgetc */
+
+void 
+gerb_drill_ungetc(gerb_file_t *fd)
+{
+    if (fd->ptr)
+	fd->ptr--;
+    if (last_char =='\n') f_line--;
+
+    return;
+} /* gerb_ungetc */
+
 
 void
 drill_attribute_merge (gerbv_HID_Attribute *dest, int ndest, gerbv_HID_Attribute *src, int nsrc)
@@ -236,44 +270,75 @@ drill_add_drill_hole (gerbv_image_t *image, drill_state_t *state,
     drill_stats_increment_drill_counter(image->drill_stats->drill_list,
 	    state->current_tool);
 
-    curr_net->next = g_new0(gerbv_net_t, 1);
-    if (curr_net->next == NULL)
-	GERB_FATAL_ERROR("malloc curr_net->next failed in %s()",
-			__FUNCTION__);
-
-    curr_net = curr_net->next;
-    curr_net->layer = image->layers;
-    curr_net->state = image->states;
+    //ModX
+    if (last_g_code == DRILL_G_LINEARMOVE)
+    {
+        curr_net->stop_x = curr_net->start_x; 
+        curr_net->stop_y = curr_net->start_y; 
+    }
+    else
+    {
+        curr_net->next = g_new0(gerbv_net_t, 1);
+        if (curr_net->next == NULL)
+    	GERB_FATAL_ERROR("malloc curr_net->next failed in %s()",
+    			__FUNCTION__);
+        curr_net = curr_net->next;
+        curr_net->layer = image->layers;
+        curr_net->state = image->states;
+	}
+    
     curr_net->start_x = state->curr_x;
     curr_net->start_y = state->curr_y;
+
     /* KLUDGE. This function isn't allowed to return anything
        but inches */
     if(state->unit == GERBV_UNIT_MM) {
-	curr_net->start_x /= 25.4;
-	curr_net->start_y /= 25.4;
-	/* KLUDGE. All images, regardless of input format,
-	   are returned in INCH format */
-	curr_net->state->unit = GERBV_UNIT_INCH;
+    	curr_net->start_x /= 25.4;
+    	curr_net->start_y /= 25.4;
+    	/* KLUDGE. All images, regardless of input format,
+    	   are returned in INCH format */
+    	curr_net->state->unit = GERBV_UNIT_INCH;
     }
 
-    curr_net->stop_x = curr_net->start_x - state->origin_x;
-    curr_net->stop_y = curr_net->start_y - state->origin_y;
     curr_net->aperture = state->current_tool;
     curr_net->aperture_state = GERBV_APERTURE_STATE_FLASH;
 
     /* Check if aperture is set. Ignore the below instead of
        causing SEGV... */
-    if(image->aperture[state->current_tool] == NULL)
-	return curr_net;
+    if (image->aperture[state->current_tool] == NULL) return curr_net;
 
     bbox = &curr_net->boundingBox;
     r = image->aperture[state->current_tool]->parameter[0] / 2;
 
-    /* Set boundingBox */
-    bbox->left   = curr_net->start_x - r;
-    bbox->right  = curr_net->start_x + r;
-    bbox->bottom = curr_net->start_y - r;
-    bbox->top    = curr_net->start_y + r;
+	// ModX
+    if (last_g_code == DRILL_G_LINEARMOVE)
+    {
+        // curr_net->stop_x = state->curr_x;
+        // curr_net->stop_y = state->curr_y;
+        // curr_net->interpolation = GERBV_INTERPOLATION_LINEARx1;
+        image->aperture[curr_net->aperture]->type = GERBV_APTYPE_OVAL;
+        curr_net->is_drill_hole = 1;
+
+		printf("[%05ld] HOLE (%9.3f,%9.3f) (%9.3f,%9.3f) %9.3f\n",
+               f_line, curr_net->start_x, curr_net->start_y, curr_net->stop_x, curr_net->stop_y, r);
+
+        /* Set boundingBox */
+        bbox->left   = curr_net->stop_x  - r;
+        bbox->top    = curr_net->stop_y  + 0*r;
+        bbox->right  = curr_net->start_x + r;
+        bbox->bottom = curr_net->start_y - 0*r;
+    }
+    else
+    {
+        curr_net->stop_x = curr_net->start_x - state->origin_x;
+        curr_net->stop_y = curr_net->start_y - state->origin_y;
+
+        /* Set boundingBox */
+        bbox->left   = curr_net->start_x - r;
+        bbox->top    = curr_net->start_y + r;
+        bbox->right  = curr_net->start_x + r;
+        bbox->bottom = curr_net->start_y - r;
+    }
 
     drill_update_image_info_min_max_from_bbox(image->info, bbox);
 
@@ -375,7 +440,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
     dprintf("%s():  Starting parsing of drill file \"%s\"\n",
 		    __FUNCTION__, fd->filename);
 
-    while ((read = gerb_fgetc(fd)) != EOF) {
+    while ((read = gerb_drill_fgetc(fd)) != EOF) {
 
 	switch ((char) read) {
 
@@ -391,7 +456,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 	    break;
 
 	case 'D' :
-	    gerb_ungetc (fd);
+	    gerb_drill_ungetc (fd);
 	    tmps = get_line (fd);
 	    if (strcmp (tmps, "DETECT,ON") == 0 ||
 		strcmp (tmps, "DETECT,OFF") == 0) {
@@ -420,7 +485,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 	    break;
 
 	case 'F' :
-	    gerb_ungetc (fd);
+	    gerb_drill_ungetc (fd);
 	    tmps = get_line (fd);
 
 	    /* Silently ignore FMAT,2.  Not sure what others are allowed */
@@ -457,6 +522,25 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 
 	    switch (g_code = drill_parse_G_code(fd, image, file_line)) {
 
+        // ModX
+        case DRILL_G_ROUT:           		
+    		printf("[%05ld] COORDS1 (%9.3f,%9.3f)",
+                   f_line, state->curr_x, state->curr_y);
+
+    		// curr_net->stop_x = state->origin_x = state->curr_x;
+    		// curr_net->stop_y = state->origin_y = state->curr_y;
+    		// curr_net = drill_add_drill_hole (image, state, stats, curr_net);
+            break;                    
+        
+        case DRILL_G_LINEARMOVE:
+    		drill_parse_coordinate(fd, read, image, state, file_line);
+    
+    		printf("[%05ld] COORDS2 (%9.3f,%9.3f)",
+                   f_line, state->curr_x, state->curr_y);
+
+            curr_net = drill_add_drill_hole (image, state, stats, curr_net);
+            break;
+
 	    case DRILL_G_DRILL :
 		/* Drill mode */
 		break;
@@ -466,7 +550,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 		gerbv_render_size_t *bbox = &curr_net->boundingBox;
 		double r;
 
-		if (EOF == (read = gerb_fgetc(fd))) {
+		if (EOF == (read = gerb_drill_fgetc(fd))) {
 		    gerbv_stats_printf(stats->error_list,
 			    GERBV_MESSAGE_ERROR, -1,
 			    _("Unexpected EOF found in file \"%s\""),
@@ -480,12 +564,6 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 		curr_net->stop_x = state->curr_x;
 		curr_net->stop_y = state->curr_y;
 
-		if (state->unit == GERBV_UNIT_MM) {
-		    /* Convert to inches -- internal units */
-		    curr_net->stop_x /= 25.4;
-		    curr_net->stop_y /= 25.4;
-		}
-
 		r = image->aperture[state->current_tool]->parameter[0]/2;
 
 		/* Update boundingBox with drilled slot stop_x,y coords */
@@ -496,6 +574,11 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 
 		drill_update_image_info_min_max_from_bbox(image->info, bbox);
 
+		if (state->unit == GERBV_UNIT_MM) {
+		    /* Convert to inches -- internal units */
+		    curr_net->stop_x /= 25.4;
+		    curr_net->stop_y /= 25.4;
+		}
 		curr_net->aperture_state = GERBV_APERTURE_STATE_ON;
 
 		break;
@@ -510,7 +593,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 		break;
 
 	    case DRILL_G_ZEROSET :
-		if (EOF == (read = gerb_fgetc(fd))) {
+		if (EOF == (read = gerb_drill_fgetc(fd))) {
 		    gerbv_stats_printf(stats->error_list,
 			    GERBV_MESSAGE_ERROR, -1,
 			    _("Unexpected EOF found in file \"%s\""),
@@ -544,11 +627,13 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 		break;
 	    }
 
+    	last_g_code = g_code;
+        	
 	    break;
 	}
 
 	case 'I':
-	    gerb_ungetc(fd); /* To compare full string in function or
+	    gerb_drill_ungetc(fd); /* To compare full string in function or
 				report full string  */
 	    if (drill_parse_header_is_inch(fd, state, image, file_line))
 		break;
@@ -680,7 +765,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 		break;
 
 	    case DRILL_M_UNKNOWN:
-		gerb_ungetc(fd); /* To compare full string in function or
+		gerb_drill_ungetc(fd); /* To compare full string in function or
 				    report full string  */
 		if (drill_parse_header_is_metric(fd, state, image, file_line))
 		    break;
@@ -738,25 +823,25 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 	      start_y = state->curr_y;
 
 	      /* figure out how many repeats there are */
-	      c = gerb_fgetc (fd);
+	      c = gerb_drill_fgetc (fd);
 	      rcnt = 0;
 	      while ( '0' <= c && c <= '9') {
 		rcnt = 10*rcnt + (c - '0');
-		c = gerb_fgetc (fd);
+		c = gerb_drill_fgetc (fd);
 	      }
 	      dprintf ("working on R code (repeat) with a number of reps equal to %d\n", rcnt);
 
 	      step_x = 0.0;
 	      if (c == 'X') {
 		step_x = read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
-		c = gerb_fgetc (fd);
+		c = gerb_drill_fgetc (fd);
 	      }
 
 	      step_y = 0.0;
 	      if( c == 'Y') {
 		  step_y = read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
 	      } else {
-		gerb_ungetc (fd);
+		gerb_drill_ungetc (fd);
 	      }
 	      
 	      dprintf ("Getting ready to repeat the drill %d times with delta_x = %g, delta_y = %g\n", rcnt, step_x, step_y);
@@ -782,7 +867,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 	    drill_parse_T_code(fd, state, image, file_line);
 	    break;
 	case 'V' :
-	    gerb_ungetc (fd);
+	    gerb_drill_ungetc (fd);
 	    tmps = get_line (fd);
 	    /* Silently ignore VER,1.  Not sure what others are allowed */
 	    if (0 != strcmp (tmps, "VER,1")) {
@@ -811,18 +896,18 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 	    file_line++;
 
 	    /* Get <CR> char, if any, from <LF><CR> pair */
-	    read = gerb_fgetc(fd);
+	    read = gerb_drill_fgetc(fd);
 	    if (read != '\r' && read != EOF)
-		    gerb_ungetc(fd);
+		    gerb_drill_ungetc(fd);
 	    break;
 
 	case '\r' :
 	    file_line++;
 
 	    /* Get <LF> char, if any, from <CR><LF> pair */
-	    read = gerb_fgetc(fd);
+	    read = gerb_drill_fgetc(fd);
 	    if (read != '\n' && read != EOF)
-		    gerb_ungetc(fd);
+		    gerb_drill_ungetc(fd);
 	    break;
 
 	case ' ' :	/* White space */
@@ -838,7 +923,7 @@ parse_drillfile(gerb_file_t *fd, gerbv_HID_Attribute *attr_list, int n_attr, int
 			    "at line %ld in file \"%s\""),
 			gerbv_escape_char(read), read,
 			file_line, fd->filename);
-		gerb_ungetc(fd);
+		gerb_drill_ungetc(fd);
 
 		/* Unrecognised crap in the header is thrown away */
 		tmps = get_line(fd);
@@ -1065,14 +1150,14 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
 
     /* Sneak a peek at what's hiding after the 'T'. Ugly fix for
        broken headers from Orcad, which is crap */
-    temp = gerb_fgetc(fd);
+    temp = gerb_drill_fgetc(fd);
     dprintf("  Found a char '%s' (0x%02x) after the T\n",
 	    gerbv_escape_char(temp), temp);
     
     /* might be a tool tool change stop switch on/off*/
     if((temp == 'C') && ((fd->ptr + 2) < fd->datalen)){
-    	if(gerb_fgetc(fd) == 'S'){
-    	    if (gerb_fgetc(fd) == 'T' ){
+    	if(gerb_drill_fgetc(fd) == 'S'){
+    	    if (gerb_drill_fgetc(fd) == 'T' ){
     	  	fd->ptr -= 4;
     	  	tmps = get_line(fd++);
     	  	gerbv_stats_printf(stats->error_list, GERBV_MESSAGE_NOTE, -1,
@@ -1083,9 +1168,9 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
 
 	  	return -1;
 	    }
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	}
-	gerb_ungetc(fd);
+	gerb_drill_ungetc(fd);
     }
 
     if( !(isdigit(temp) != 0 || temp == '+' || temp =='-') ) {
@@ -1103,7 +1188,7 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
 	}
 	return -1;
     }
-    gerb_ungetc(fd);
+    gerb_drill_ungetc(fd);
 
     tool_num = (int) gerb_fgetint(fd, NULL);
     dprintf ("  Handling tool T%d at line %ld\n", tool_num, file_line);
@@ -1124,7 +1209,7 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
     apert = image->aperture[tool_num];
 
     /* Check for a size definition */
-    temp = gerb_fgetc(fd);
+    temp = gerb_drill_fgetc(fd);
 
     /* This bit of code looks for a tool definition by scanning for strings
      * of form TxxC, TxxF, TxxS.  */
@@ -1211,12 +1296,12 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
 	default:
 	    /* Stop when finding anything but what's expected
 	       (and put it back) */
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	    done = TRUE;
 	    break;
 	}  /* switch((char)temp) */
 
-	temp = gerb_fgetc(fd);
+	temp = gerb_drill_fgetc(fd);
 	if (EOF == temp) {
 	    gerbv_stats_printf(stats->error_list, GERBV_MESSAGE_ERROR, -1,
 		    _("Unexpected EOF encountered in header of "
@@ -1224,7 +1309,7 @@ drill_parse_T_code(gerb_file_t *fd, drill_state_t *state,
 
 	/* Restore new line character for processing */
 	if ('\n' == temp || '\r' == temp)
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	}
     }   /* while(!done) */  /* Done looking at tool definitions */
 
@@ -1296,8 +1381,8 @@ drill_parse_M_code(gerb_file_t *fd, drill_state_t *state,
 
     dprintf("---> entering %s() ...\n", __FUNCTION__);
 
-    op[0] = gerb_fgetc(fd);
-    op[1] = gerb_fgetc(fd);
+    op[0] = gerb_drill_fgetc(fd);
+    op[1] = gerb_drill_fgetc(fd);
     op[2] = '\0';
 
     if (op[0] == EOF
@@ -1316,8 +1401,8 @@ drill_parse_M_code(gerb_file_t *fd, drill_state_t *state,
 	/* atoi() return 0 in case of error, recheck string */
 	if (0 != strncmp(op, "00", 2)) {
 	    m_code = DRILL_M_UNKNOWN;
-	    gerb_ungetc(fd);
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	    break;
 	}
 	stats->M00++;
@@ -1405,15 +1490,15 @@ drill_parse_header_is_metric(gerb_file_t *fd, drill_state_t *state,
 
 header_again:
 
-    if (',' != gerb_fgetc(fd)) {
-	gerb_ungetc(fd);
+    if (',' != gerb_drill_fgetc(fd)) {
+	gerb_drill_ungetc(fd);
 	eat_line(fd);
     } else {
 	/* Is it TZ, LZ, or zerofmt? */
-	switch (c = gerb_fgetc(fd)) {
+	switch (c = gerb_drill_fgetc(fd)) {
 	case 'T':
 	case 'L':
-	    if ('Z' != gerb_fgetc(fd))
+	    if ('Z' != gerb_drill_fgetc(fd))
 		goto header_junk;
 
 	    if (c == 'L') {
@@ -1438,23 +1523,23 @@ header_again:
 		state->decimals = 3;
 	    }
 
-	    if (',' == gerb_fgetc(fd))
+	    if (',' == gerb_drill_fgetc(fd))
 		/* Anticipate number format will follow */
 		goto header_again;
 
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 
 	    break;
 
 	case '0':
-	    if ('0' != gerb_fgetc(fd)
-	    ||  '0' != gerb_fgetc(fd))
+	    if ('0' != gerb_drill_fgetc(fd)
+	    ||  '0' != gerb_drill_fgetc(fd))
 		goto header_junk;
 
 	    /* We just parsed three 0s, the remainder options
 	       so far are: .000 | .00 | 0.00 */
-	    op[0] = gerb_fgetc(fd);
-	    op[1] = gerb_fgetc(fd);
+	    op[0] = gerb_drill_fgetc(fd);
+	    op[1] = gerb_drill_fgetc(fd);
 	    op[2] = '\0';
 	    if (EOF == op[0]
 	    ||  EOF == op[1])
@@ -1463,8 +1548,8 @@ header_again:
 	    if (0 == strcmp(op, "0.")) {
 		/* expecting FMT_0000_00,
 		   two trailing 0s must follow */
-		if ('0' != gerb_fgetc(fd)
-		||  '0' != gerb_fgetc(fd))
+		if ('0' != gerb_drill_fgetc(fd)
+		||  '0' != gerb_drill_fgetc(fd))
 		    goto header_junk;
 
 		eat_line(fd);
@@ -1481,15 +1566,15 @@ header_again:
 
 	    /* Must be either FMT_000_000 or FMT_000_00, depending
 	     * on whether one or two 0s are following */
-	    if ('0' != gerb_fgetc(fd))
+	    if ('0' != gerb_drill_fgetc(fd))
 		goto header_junk;
 
-	    if ('0' == gerb_fgetc(fd)
+	    if ('0' == gerb_drill_fgetc(fd)
 	    &&  state->autod) {
 		state->number_format = FMT_000_000;
 		state->decimals = 3;
 	    } else {
-		gerb_ungetc(fd);
+		gerb_drill_ungetc(fd);
 
 		if (state->autod) {
 		    state->number_format = FMT_000_00;
@@ -1502,7 +1587,7 @@ header_again:
 
 	default:
 header_junk:
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	    eat_line(fd);
 
 	    gerbv_stats_printf(stats->error_list,
@@ -1544,12 +1629,12 @@ drill_parse_header_is_inch(gerb_file_t *fd, drill_state_t *state,
     }
 
     /* Look for TZ/LZ */
-    if (',' != gerb_fgetc(fd)) {
+    if (',' != gerb_drill_fgetc(fd)) {
 	/* Unget the char in case we just advanced past a new line char */
-	gerb_ungetc (fd);
+	gerb_drill_ungetc (fd);
     } else {
-	c = gerb_fgetc(fd);
-	if (c != EOF && 'Z' == gerb_fgetc(fd)) {
+	c = gerb_drill_fgetc(fd);
+	if (c != EOF && 'Z' == gerb_drill_fgetc(fd)) {
 	    switch (c) {
 	    case 'L':
 		if (state->autod) {
@@ -1639,8 +1724,8 @@ drill_parse_G_code(gerb_file_t *fd, gerbv_image_t *image, ssize_t file_line)
     
     dprintf("---> entering %s()...\n", __FUNCTION__);
 
-    op[0] = gerb_fgetc(fd);
-    op[1] = gerb_fgetc(fd);
+    op[0] = gerb_drill_fgetc(fd);
+    op[1] = gerb_drill_fgetc(fd);
     op[2] = '\0';
 
     if (op[0] == EOF
@@ -1658,8 +1743,8 @@ drill_parse_G_code(gerb_file_t *fd, gerbv_image_t *image, ssize_t file_line)
 	/* atoi() return 0 in case of error, recheck string */
 	if (0 != strncmp(op, "00", 2)) {
 	    g_code = DRILL_G_UNKNOWN;
-	    gerb_ungetc(fd);
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 	    break;
 	}
 	stats->G00++;
@@ -1715,10 +1800,10 @@ drill_parse_coordinate(gerb_file_t *fd, char firstchar,
     if(state->coordinate_mode == DRILL_MODE_ABSOLUTE) {
 	if (firstchar == 'X') {
 	    state->curr_x = read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
-	    if ((read = (char)gerb_fgetc(fd)) == 'Y') {
+	    if ((read = (char)gerb_drill_fgetc(fd)) == 'Y') {
 		state->curr_y = read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
 	    } else {
-		gerb_ungetc(fd);
+		gerb_drill_ungetc(fd);
 	    }
 	} else if (firstchar == 'Y') {
 	    state->curr_y = read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
@@ -1726,10 +1811,10 @@ drill_parse_coordinate(gerb_file_t *fd, char firstchar,
     } else if(state->coordinate_mode == DRILL_MODE_INCREMENTAL) {
 	if (firstchar == 'X') {
 	    state->curr_x += read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
-	    if((read = (char)gerb_fgetc(fd)) == 'Y') {
+	    if((read = (char)gerb_drill_fgetc(fd)) == 'Y') {
 		state->curr_y += read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
 	    } else {
-		gerb_ungetc(fd);
+		gerb_drill_ungetc(fd);
 	    }
 	} else if (firstchar == 'Y') {
 	    state->curr_y += read_double(fd, state->number_format, image->format->omit_zeros, state->decimals);
@@ -1782,7 +1867,7 @@ read_double(gerb_file_t *fd, number_fmt_t fmt, gerbv_omit_zeros_t omit_zeros, in
 
     memset(temp, 0, sizeof(temp));
 
-    read = gerb_fgetc(fd);
+    read = gerb_drill_fgetc(fd);
     while(read != EOF && i < (DRILL_READ_DOUBLE_SIZE -1) &&
 	  (isdigit(read) || read == '.' || read == ',' || read == '+' || read == '-')) {
       if(read == ',' || read == '.') decimal_point = TRUE;
@@ -1800,11 +1885,11 @@ read_double(gerb_file_t *fd, number_fmt_t fmt, gerbv_omit_zeros_t omit_zeros, in
 	    sign_prepend = TRUE;
 
       temp[i++] = (char)read;
-      read = gerb_fgetc(fd);
+      read = gerb_drill_fgetc(fd);
     }
 
     temp[i] = 0;
-    gerb_ungetc(fd);
+    gerb_drill_ungetc(fd);
 
     if (decimal_point) {
 	result = strtod(temp, NULL);
@@ -1934,12 +2019,12 @@ eat_line(gerb_file_t *fd)
     int read;
 
     do {
-	read = gerb_fgetc(fd);
+	read = gerb_drill_fgetc(fd);
     } while (read != '\n' && read != '\r' && read != EOF);
 
     /* Restore new line character for processing */
     if (read != EOF)
-	gerb_ungetc(fd);
+	gerb_drill_ungetc(fd);
 } /* eat_line */
 
 /* -------------------------------------------------------------- */
@@ -1950,7 +2035,7 @@ get_line(gerb_file_t *fd)
 	gchar *retstring;
 	gchar *tmps=g_strdup("");
 
-	read = gerb_fgetc(fd);
+	read = gerb_drill_fgetc(fd);
 	while (read != '\n' && read != '\r' && read != EOF) {
 		retstring = g_strdup_printf("%s%c", tmps, read);
 
@@ -1960,12 +2045,12 @@ get_line(gerb_file_t *fd)
 			tmps = NULL;
 		}
 		tmps = retstring;
-		read = gerb_fgetc(fd);
+		read = gerb_drill_fgetc(fd);
 	}
 
 	/* Restore new line character for processing */
 	if (read != EOF)
-	    gerb_ungetc(fd);
+	    gerb_drill_ungetc(fd);
 
 	return tmps;
 } /* get_line */
@@ -1978,7 +2063,7 @@ file_check_str(gerb_file_t *fd, const char *str)
 
     for (int i = 0; str[i] != '\0'; i++) {
 
-	c = gerb_fgetc(fd);
+	c = gerb_drill_fgetc(fd);
 
 	if (c == EOF)
 	    return -1;
@@ -1986,7 +2071,7 @@ file_check_str(gerb_file_t *fd, const char *str)
 	if (c != str[i]) {
 	    do {
 		/* Restore checked string */
-		gerb_ungetc(fd);
+		gerb_drill_ungetc(fd);
 	    } while (i--);
 
 	    return 0;

@@ -652,9 +652,12 @@ gerbv_gdk_draw_rectangle(GdkPixmap *pixmap, GdkGC *gc,
  */ 
 static void
 gerbv_gdk_draw_oval(GdkPixmap *pixmap, GdkGC *gc,
-		int filled, gint x, gint y, gint x_axis, gint y_axis,
+		int filled, gint x, gint y, gint x_axis, gint y_axis, gint r,
 		double angle_deg)
 {
+    if (r && !x_axis && !y_axis) return;
+
+    int i;
 	gint width;
 	GdkPoint points[2];
 	GdkGC *local_gc = gdk_gc_new(pixmap);
@@ -662,29 +665,41 @@ gerbv_gdk_draw_oval(GdkPixmap *pixmap, GdkGC *gc,
 	gdk_gc_copy(local_gc, gc);
 
 	if (x_axis > y_axis) {
-		/* Draw in x axis */
-		width = y_axis;
+		// Draw in x axis
+  	    width = (r) ? r: y_axis;
 
-		points[0].x = -(x_axis >> 1) + (y_axis >> 1);
-		points[0].y = 0;
-		points[1].x =  (x_axis >> 1) - (y_axis >> 1);
-		points[1].y = 0;
+		if (r) {
+    		points[0].x = 0;
+    		points[1].x = x_axis;
+    		points[0].y = points[1].y = 0;
+		} else {
+    		points[0].x = -(x_axis >> 1) + (y_axis >> 1);
+    		points[1].x =  (x_axis >> 1) - (y_axis >> 1);
+    		points[0].y = points[1].y = 0;
+		}	
+		
 	} else {
-		/* Draw in y axis */
-		width = x_axis;
+		// Draw in y axis
+  	    width = (r) ? r: x_axis;
 
-		points[0].x = 0;
-		points[0].y = -(y_axis >> 1) + (x_axis >> 1);
-		points[1].x = 0;
-		points[1].y =  (y_axis >> 1) - (x_axis >> 1);
+		if (r) {
+    		points[0].x = points[1].x = 0;
+    		points[0].y = 0;
+    		points[1].y = y_axis;
+
+		} else {
+    		points[0].x = points[1].x = 0;
+    		points[0].y = -(y_axis >> 1) + (x_axis >> 1);
+    		points[1].y =  (y_axis >> 1) - (x_axis >> 1);
+        }
+
 	}
 
-	points[0] = rotate_point(points[0], angle_deg);
-	points[0].x += x;
-	points[0].y += y;
-	points[1] = rotate_point(points[1], angle_deg);
-	points[1].x += x;
-	points[1].y += y;
+	for (i = 0; i < 2; i++) {
+		points[i] = rotate_point(points[i], angle_deg);
+		points[i].x += x;
+		points[i].y += y;
+	}
 
 	gdk_gc_set_line_attributes(local_gc, width,
 			GDK_LINE_SOLID, GDK_CAP_ROUND, GDK_JOIN_MITER);
@@ -1250,9 +1265,14 @@ draw_gdk_image_to_pixmap(GdkPixmap **pixmap, gerbv_image_t *image,
 					image->info->imageRotation));
 			break;
 		    case GERBV_APTYPE_OVAL :
-			gerbv_gdk_draw_oval(*pixmap, gc, TRUE,
-				x2, y2, p1, p2, RAD2DEG(transform.rotation +
-					image->info->imageRotation));
+		        if (net->is_drill_hole)
+        			gerbv_gdk_draw_oval(*pixmap, gc, TRUE,
+        				x2, y2, abs(x2 - x1), abs(y2 - y1), p1, 
+        				RAD2DEG(transform.rotation + image->info->imageRotation));
+                else        				
+        			gerbv_gdk_draw_oval(*pixmap, gc, TRUE,
+        				x2, y2, p1, p2, 0, 
+        				RAD2DEG(transform.rotation + image->info->imageRotation));
 			break;
 		    case GERBV_APTYPE_POLYGON :
 			/* TODO: gdk_draw_polygon() */

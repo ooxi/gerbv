@@ -652,6 +652,7 @@ typedef struct gerbv_net {
     GString *label; /*!< a label string for this net */
     gerbv_layer_t *layer; /*!< the RS274X layer this net belongs to */
     gerbv_netstate_t *state; /*!< the RS274X state this net belongs to */
+    int is_drill_hole; // Geometric entity belongs to drill layer
 } gerbv_net_t;
 
 /*! Struct holding info about interpreting the Gerber files read
