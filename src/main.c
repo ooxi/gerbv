@@ -27,6 +27,7 @@
 */
 
 #include "gerbv.h"
+#include "dbg.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -177,18 +178,20 @@ gchar *logToFileFilename;
 static void
 care_for_x_in_cords(char *string)
 {
-	char *found;
+DBG;	char *found;
 	found = strchr(string, 'x');
 	if (!found)
 		found = strchr(string, 'X');
 	if (found)
 		*found = ';';
+DBG;
 }
 
 /* ------------------------------------------------------------------ */
 void 
 main_open_project_from_filename(gerbv_project_t *gerbvProject, gchar *filename) 
 {
+DBG;
 	project_list_t *list, *plist;
 	gint i, max_layer_num = -1;
 	gerbv_fileinfo_t *file_info;
@@ -286,12 +289,14 @@ main_open_project_from_filename(gerbv_project_t *gerbvProject, gchar *filename)
 	if (gerbvProject->project == NULL)
 		GERB_FATAL_ERROR("malloc gerbvProject->project failed in %s()",
 				__FUNCTION__);
+DBG;
 } /* gerbv_open_project_from_filename */
 
 /* ------------------------------------------------------------------ */
 void 
 main_save_project_from_filename(gerbv_project_t *gerbvProject, gchar *filename) 
 {
+DBG;
     project_list_t *list, *plist;
     gchar *dirName = g_path_get_dirname (filename);
     gerbv_fileinfo_t *file_info;
@@ -345,12 +350,14 @@ main_save_project_from_filename(gerbv_project_t *gerbvProject, gchar *filename)
     }
     project_destroy_project_list(list);
     g_free (dirName);
+DBG;
 } /* gerbv_save_project_from_filename */
 
 /* ------------------------------------------------------------------ */
 void 
 main_save_as_project_from_filename(gerbv_project_t *gerbvProject, gchar *filename) 
 {
+DBG;
 	
     /*
      * Save project filename for later use
@@ -364,6 +371,7 @@ main_save_as_project_from_filename(gerbv_project_t *gerbvProject, gchar *filenam
 	GERB_FATAL_ERROR("malloc gerbvProject->project failed in %s()",
 			__FUNCTION__);
     main_save_project_from_filename (gerbvProject, filename);
+DBG;
 } /* gerbv_save_as_project_from_filename */
 
 GArray *log_array_tmp = NULL;
@@ -374,6 +382,7 @@ void
 callbacks_temporary_handle_log_messages(const gchar *log_domain,
 		GLogLevelFlags log_level,
 		const gchar *message, gpointer user_data) {
+DBG;
     struct log_struct item;
 
     item.domain = g_strdup (log_domain);
@@ -382,22 +391,26 @@ callbacks_temporary_handle_log_messages(const gchar *log_domain,
     g_array_append_val (log_array_tmp, item);
 
     g_log_default_handler (log_domain, log_level, message, user_data);
+DBG;
 }
 
 #ifdef WIN32
 static void
 wait_console_for_win(void)
 {
+DBG;
     FILE *console = fopen("CONOUT$", "w");
 
     fprintf(console, _("\n*** Press Enter to continue ***"));
     fflush(console);
+DBG;
 }
 
 /* Attach console in application which is build with -mwindows flag */
 static void
 attach_console_for_win(void)
 {
+DBG;
     if (((HANDLE)_get_osfhandle(fileno(stdout)) == INVALID_HANDLE_VALUE
       || (HANDLE)_get_osfhandle(fileno(stderr)) == INVALID_HANDLE_VALUE)
     && AttachConsole(ATTACH_PARENT_PROCESS)) {
@@ -410,6 +423,7 @@ attach_console_for_win(void)
 
 	atexit(wait_console_for_win);
     }
+DBG;
 }
 #else
 static void
@@ -420,6 +434,7 @@ attach_console_for_win(void) {}
 int
 main(int argc, char *argv[])
 {
+DBG;
     int       read_opt;
     int       i,r,g,b,a;
     int       req_width = -1, req_height = -1;
@@ -439,7 +454,7 @@ main(int argc, char *argv[])
     gfloat userSuppliedOriginX=0.0,userSuppliedOriginY=0.0,userSuppliedDpiX=72.0, userSuppliedDpiY=72.0, 
 	   userSuppliedWidth=0, userSuppliedHeight=0,
 	   userSuppliedBorder = GERBV_DEFAULT_BORDER_COEFF;
-
+DBG;
     gerbv_image_t *exportImage;
 
     enum exp_type {
@@ -473,7 +488,7 @@ main(int argc, char *argv[])
 	"output.ncp",
 	NULL
     };
-
+DBG;
     const gchar *settings_schema_env = "GSETTINGS_SCHEMA_DIR";
 #ifdef WIN32
     /* On Windows executable can be not in bin/ dir */
@@ -495,7 +510,7 @@ main(int argc, char *argv[])
 #endif
 
     attach_console_for_win();
-
+DBG;
     /*
      * Setup the screen info. Must do this before getopt, since getopt
      * eventually will set some variables in screen.
@@ -525,7 +540,7 @@ main(int argc, char *argv[])
 		    NULL);
     g_setenv(settings_schema_env, env_val, TRUE);
     g_free(env_val);
-    
+DBG;
     /* set default rendering mode */
 #ifdef WIN32
     /* Cairo seems to render faster on Windows, so use it for default */
@@ -560,7 +575,7 @@ main(int argc, char *argv[])
 	    break;
 	}
     }
-
+DBG;
     /* 2. Process all other command line flags */
     optind = 0; /* Reset getopt() index */
     opterr = 1; /* Enable getopt() error messages */
@@ -896,7 +911,7 @@ main(int argc, char *argv[])
 			    read_opt);
 	}
     }
-    
+DBG;
     /*
      * If project is given, load that one and use it for files and colors.
      * Else load files (eventually) given on the command line.
@@ -948,7 +963,7 @@ main(int argc, char *argv[])
 	    loadedIndex++;
 	}
     }
-
+DBG;
     if (initial_rotation != 0.0) {
 	/* Set initial layer orientation */
 
@@ -960,7 +975,7 @@ main(int argc, char *argv[])
 		mainProject->file[i]->transform.rotation = initial_radians;
 	}
     }
-
+DBG;
     if (initial_mirror_x || initial_mirror_y) {
 	/* Set initial mirroring of all layers */
 
@@ -978,7 +993,7 @@ main(int argc, char *argv[])
 	    }
 	}
     }
-
+DBG;
     if (exportType != EXP_TYPE_NONE) {
 	/* load the info struct with the default values */
 
@@ -1009,7 +1024,7 @@ main(int argc, char *argv[])
 		userSuppliedOriginY -= 0.5/userSuppliedDpiY;
 	    }
 	}
-
+DBG;
 	// Add the border size (if there is one)
 	if(userSuppliedBorder!=0){
 	    // If supplied in inches, add a border around the image
@@ -1027,12 +1042,12 @@ main(int argc, char *argv[])
 		userSuppliedDpiY -= (userSuppliedDpiY*userSuppliedBorder);
 	    }
 	}
-	
+DBG;
 	if(!userSuppliedWindowInPixels){
 	    userSuppliedWidth  *= userSuppliedDpiX;
 	    userSuppliedHeight *= userSuppliedDpiY;
 	}
-	
+DBG;
 	// Make sure there is something valid in it. It could become negative if 
 	// the userSuppliedOrigin is further than the bb.right or bb.top.
 	if(userSuppliedWidth <=0)
@@ -1040,7 +1055,7 @@ main(int argc, char *argv[])
 	if(userSuppliedHeight <=0)
 	    userSuppliedHeight = 1;
 
-
+DBG;
 	gerbv_render_info_t renderInfo = {userSuppliedDpiX, userSuppliedDpiY, 
 	    userSuppliedOriginX, userSuppliedOriginY,
 	    userSuppliedAntiAlias? GERBV_RENDER_TYPE_CAIRO_HIGH_QUALITY: GERBV_RENDER_TYPE_CAIRO_NORMAL,
@@ -1109,19 +1124,22 @@ main(int argc, char *argv[])
 	/* exit now and don't start up gtk if this is a command line export */
 	exit(0);
     }
+DBG;
     gtk_init (&argc, &argv);
     interface_create_gui (req_width, req_height);
-    
+DBG;
     /* we've exited the GTK loop, so free all resources */
     render_free_screen_resources();
     gerbv_destroy_project (mainProject);
     return 0;
+DBG;
 } /* main */
 
 static int
 getopt_configured(int argc, char * const argv[], const char *optstring,
 		const struct option *longopts, int *longindex)
 {
+DBG;
 #ifdef HAVE_GETOPT_LONG
 	return getopt_long(argc, argv, optstring, longopts, longindex);
 #else
@@ -1132,6 +1150,7 @@ getopt_configured(int argc, char * const argv[], const char *optstring,
 static int
 getopt_lengh_unit(const char *optarg, double *input_div, gerbv_screen_t *screen)
 {
+DBG;
 	if (strncasecmp(optarg, "mm", 2) == 0) {
 		*input_div = 25.4;
 		screen->unit = GERBV_MMS;
@@ -1147,13 +1166,14 @@ getopt_lengh_unit(const char *optarg, double *input_div, gerbv_screen_t *screen)
 	} else {
 		return 0;
 	}
-
+DBG;
 	return 1;
 }
 
 static void
 gerbv_print_help(void)
 {
+DBG;
 	printf(_(
 "Usage: gerbv [OPTIONS...] [FILE...]\n"
 "\n"
@@ -1347,5 +1367,5 @@ gerbv_print_help(void)
 "     rs274x|drill|        the specified format.\n"
 "     idrill>\n"));
 #endif
-
+DBG;
 }
