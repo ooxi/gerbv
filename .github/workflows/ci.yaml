@@ -1,0 +1,36 @@
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull
+# request events but only for the main branch
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches: [ '**' ]
+
+
+jobs:
+  ci:
+    runs-on: ubuntu-20.04
+    name: ci
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Rebuild Fedora 36
+      run: npx --package mini-cross@0.15.2 mc --no-tty fedora:36 .mc/rebuild.sh
+
+    - name: Rebuild Ubuntu 22.04
+      run: npx --package mini-cross@0.15.2 mc --no-tty ubuntu:22.04 .mc/rebuild.sh
+
+    - name: Rebuild Windows amd64
+      run: npx --package mini-cross@0.15.2 mc --no-tty windows:amd64 .mc/rebuild.sh
+
+    - name: Upload executable artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: gerbv
+        path: gerbv.github.io/ci/gerbv*
+        if-no-files-found: error
+
