@@ -66,7 +66,7 @@ gerb_fopen(char const * filename)
     }
 
     /* Issue #190 / CWE-824 */
-    fd->filename = 0;
+//    fd->filename = 0;
 
     dprintf("     Doing fopen\n");
     /* fopen() can't open files with non ASCII filenames on windows */
