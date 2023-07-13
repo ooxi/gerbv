@@ -1461,7 +1461,10 @@ parse_rs274x(gint levelOfRecursion, gerb_file_t *fd, gerbv_image_t *image,
 		    
 		    includefd = gerb_fopen(fullPath);
 		    if (includefd) {
+//			includefd->filename = strdup(fullPath);
 			gerber_parse_file_segment (levelOfRecursion + 1, image, state, curr_net, stats, includefd, directoryPath);
+//			free(includefd->filename);
+			includefd->filename = 0;
 			gerb_fclose(includefd);
 		    } else {
 			gerbv_stats_printf(error_list, GERBV_MESSAGE_ERROR, -1,
